@@ -22,7 +22,7 @@ To use the bot, you'll need an API key and a token:
   - Go to "Cookies"
   - Find the "token" item stored there.
 
-An example screenshot for locating the token can be added to assist users visually.
+![Breachbase Token Retrieval](https://i.imgur.com/GNT5FZI.png)
 
 ### Endpoint Information
 
