@@ -37,6 +37,22 @@ There is a known glitch in the Breachbase system that allows for unlimited API s
 
 This method exploits a glitch where the user benefits from unlimited searches while retaining the Lifetime plan features. It is crucial to note that this can be quite costly, and exploiting such glitches may have unforeseen repercussions.
 
+
+## Random webcam feature
+
+The bot has a /random_webcam command
+You can get random webcams from around the world using Shodan & insecam!
+
+Insecam is a free website where you can see webcams from around the world. The bot uses beautifulsoup to scrape the information for the user. 
+Shodan is a free/paid API you can use to find unsecured webcams
+
 ## Bot Installation
 
 To invite the bot that utilizes this code and is operational 24/7, use the following link to add it to your server: [Invite ByteSecure](https://discord.com/oauth2/authorize?client_id=1116086186172219473&permissions=0&scope=bot).
+
+To install the bot locally you have to have python3 installed and then run the command:
+
+pip install discord.py requests colorama aiohttp beautifulsoup4 lxml
+
+replace the token with your own 
+replace the shodan key with your own and follow the steps above for 'breachbase'
