@@ -8,14 +8,28 @@ import time
 import os
 import sys
 from colorama import init, Fore
+import base64
+import random
+import aiohttp
+import asyncio
+from bs4 import BeautifulSoup
+from collections import deque
+import logging
+import base64
+from io import BytesIO
+from discord import File
+
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 init(autoreset=True)
 
-API_KEY = 'YOUR_API_KEY_HERE'
-TOKEN = 'YOUR_TOKEN_HERE'
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+API_KEY = 'BREACHBASE_API_KEY'
+TOKEN = 'BREACHBASE_TOKEN'
+SHODAN_API_KEY = 'SHODAN_TOKEN'
 
 def clear_console():
     if sys.platform.startswith('win'):
@@ -33,7 +47,7 @@ async def on_ready():
     print("\n")
 
     print(Fore.BLUE + "developed by")
-    print(Fore.BLUE + """
+    print(Fore.BLUE + r"""
       ____        _       _       _         
      |  _ \      | |     | |     | |        
      | |_) |_   _| |_ ___| | __ _| |__  ___ 
@@ -162,4 +176,216 @@ async def info(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-bot.run('YOUR_DISCORD_BOT_TOKEN_HERE')
+async def get_random_webcam_url():
+    random_page = random.randint(1, 585)
+    url = f"http://www.insecam.org/en/byrating/?page={random_page}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(url) as response:
+            logging.debug(f"Response status: {response.status}")
+            if response.status != 200:
+                logging.error(f"Failed to retrieve the webpage, status code: {response.status}")
+                return None
+            html = await response.text()
+            logging.debug(f"Page HTML content length: {len(html)}")
+            soup = BeautifulSoup(html, "html.parser")
+
+            webcam_links = soup.find_all("a", href=True)
+            logging.debug(f"Found {len(webcam_links)} links on the page.")
+            webcam_urls = [f"http://www.insecam.org{link['href']}" for link in webcam_links if '/view/' in link['href']]
+            logging.debug(f"Filtered {len(webcam_urls)} valid webcam URLs.")
+
+            if not webcam_urls:
+                logging.warning("No webcam URLs found.")
+                return None
+
+            return random.choice(webcam_urls)
+
+async def get_random_webcam_from_shodan():
+
+    queries = [
+        'http.title:"WV-SC385" has_screenshot:true',
+        'http.favicon.hash:-1616143106 has_screenshot:true'
+    ]
+
+
+    chosen_query = random.choice(queries)
+
+
+    if chosen_query == 'http.title:"WV-SC385" has_screenshot:true':
+        random_page = random.randint(1, 2)
+    else:
+
+        random_page = random.randint(1, 25)
+
+
+    shodan_url = f"https://api.shodan.io/shodan/host/search?key={SHODAN_API_KEY}&query={chosen_query}&page={random_page}"
+
+    try:
+        response = requests.get(shodan_url)
+        
+
+        if response.status_code == 500:
+            logging.error(f"Shodan API returned a 500 error. Query: {chosen_query}, Page: {random_page}")
+
+            if chosen_query == 'http.title:"WV-SC385" has_screenshot:true' and random_page == 2:
+                logging.info("Falling back to page 1 for 'WV-SC385' query.")
+                fallback_url = f"https://api.shodan.io/shodan/host/search?key={SHODAN_API_KEY}&query={chosen_query}&page=1"
+                response = requests.get(fallback_url)
+                if response.status_code == 500:
+                    logging.error("Fallback to page 1 failed as well.")
+                    return None
+            else:
+                return None
+
+        data = response.json()
+
+        if 'matches' not in data:
+            logging.error(f"Shodan API response does not contain 'matches'. Query: {chosen_query}, Page: {random_page}")
+            return None
+
+        if data['matches']:
+            random_result = random.choice(data['matches'])
+
+            latitude = random_result.get("location", {}).get("latitude", "Unknown")
+            longitude = random_result.get("location", {}).get("longitude", "Unknown")
+            country = random_result.get("location", {}).get("country_name", "Unknown")
+            country_code = random_result.get("location", {}).get("country_code", "Unknown")
+            city = random_result.get("location", {}).get("city", "Unknown")
+            ip_address = random_result.get("ip_str", "Unknown")
+            port = random_result.get("port", 80)
+            screenshot_data = random_result.get("screenshot", {}).get("data", None)
+
+            webcam_url = f"http://{ip_address}:{port}"
+
+            return {
+                "latitude": latitude,
+                "longitude": longitude,
+                "country": country,
+                "country_code": country_code,
+                "city": city,
+                "ip_address": ip_address,
+                "port": port,
+                "webcam_url": webcam_url,
+                "screenshot_data": screenshot_data
+            }
+        else:
+            logging.error("No matches found in the response from Shodan.")
+            return None
+    except Exception as e:
+        logging.error(f"Shodan API error: {e}")
+        return None
+
+async def get_insecam_image_url(webcam_url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(webcam_url) as response:
+            if response.status == 200:
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+
+                meta_tag = soup.find("meta", property="og:image")
+                if meta_tag:
+                    return meta_tag["content"]
+
+                img_tag = soup.find("img", {"id": "image0"})
+                if img_tag:
+                    return img_tag["src"]
+
+            return None
+
+@bot.tree.command(name='random_webcam', description='Get a random webcam from either Insecam or Shodan!')
+@app_commands.choices(source=[
+    app_commands.Choice(name="Insecam", value="insecam"),
+    app_commands.Choice(name="Shodan", value="shodan")
+])
+async def random_webcam(interaction: discord.Interaction, source: str):
+    await interaction.response.defer()
+
+    try:
+        if source == "insecam":
+            webcam_url = await get_random_webcam_url()
+            if webcam_url:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+                }
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(webcam_url) as response:
+                        html = await response.text()
+                        soup = BeautifulSoup(html, "html.parser")
+
+                        camera_details = soup.find_all("div", class_="camera-details__row")
+
+                        def extract_detail(label):
+                            for row in camera_details:
+                                if label in row.text:
+                                    return row.find_all("div")[1].text.strip()
+                            return "Unknown"
+
+                        country = extract_detail("Country:")
+                        country_code = extract_detail("Country code:")
+                        region = extract_detail("Region:")
+                        city = extract_detail("City:")
+                        latitude = extract_detail("Latitude:")
+                        longitude = extract_detail("Longitude:")
+                        zip_code = extract_detail("ZIP:")
+                        timezone = extract_detail("Timezone:")
+                        manufacturer = extract_detail("Manufacturer:")
+
+                        img_url = await get_insecam_image_url(webcam_url)
+                        ip_address = img_url 
+
+                        embed = discord.Embed(title="🎥 Random Webcam Found (Insecam)!", color=discord.Color.blue())
+                        embed.add_field(name="🔗 IP Address", value=ip_address, inline=False)
+                        embed.add_field(name="🌐 Insecam Link", value=webcam_url, inline=False)
+                        embed.add_field(name="🌍 Country", value=f":flag_{country_code.lower()}: {country}", inline=False)
+                        embed.add_field(name="📍 City", value=city, inline=False)
+                        embed.add_field(name="🗺️ Region", value=region, inline=False)
+                        embed.add_field(name="📌 Latitude/Longitude", value=f"{latitude}, {longitude}", inline=False)
+                        embed.add_field(name="📬 ZIP", value=zip_code, inline=False)
+                        embed.add_field(name="🕒 Timezone", value=timezone, inline=False)
+                        embed.add_field(name="📷 Manufacturer", value=manufacturer, inline=False)
+
+                        if img_url:
+                            embed.set_image(url=img_url)
+
+                        embed.set_footer(text="Powered by Insecam")
+                        await interaction.followup.send(embed=embed)
+                        return
+
+        elif source == "shodan":
+            shodan_webcam = await get_random_webcam_from_shodan()
+            if shodan_webcam:
+                embed = discord.Embed(title="🎥 Random Webcam Found (Shodan)!", color=discord.Color.green())
+                embed.add_field(name="🔗 IP Address", value=shodan_webcam['ip_address'], inline=False)
+                embed.add_field(name="🌍 Country", value=f":flag_{shodan_webcam['country_code'].lower()}: {shodan_webcam['country']}", inline=False)
+                embed.add_field(name="📍 City", value=shodan_webcam['city'], inline=False)
+                embed.add_field(name="📌 Latitude/Longitude", value=f"{shodan_webcam['latitude']}, {shodan_webcam['longitude']}", inline=False)
+                
+                embed.add_field(name="🌐 Live Webcam", value=f"[Click here to view live feed]({shodan_webcam['webcam_url']})", inline=False)
+
+                if shodan_webcam['screenshot_data']:
+                    screenshot_bytes = base64.b64decode(shodan_webcam['screenshot_data'])
+                    screenshot_file = BytesIO(screenshot_bytes)
+                    discord_file = discord.File(screenshot_file, filename="webcam_screenshot.jpg")
+
+                    embed.set_image(url="attachment://webcam_screenshot.jpg")
+
+                    await interaction.followup.send(embed=embed, file=discord_file)
+                else:
+                    await interaction.followup.send(embed=embed)
+
+                return
+
+        await interaction.followup.send("Could not fetch a random webcam at this time. Please try again later.", ephemeral=True)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}", exc_info=True)
+        await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+
+#replace with your token
+bot.run('TOKEN')
