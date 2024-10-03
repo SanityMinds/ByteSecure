@@ -164,20 +164,32 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
 async def info(interaction: discord.Interaction):
     embed = discord.Embed(
         title="ByteSecure Bot Information",
-        description="ByteSecure is a dedicated bot designed to help users check for data breaches.",
+        description="ByteSecure is a dedicated bot designed to help users check for data breaches and random webcam feeds.",
         color=discord.Color.dark_blue()
     )
     embed.add_field(name="Contact", value="admin@bytelabs.site", inline=False)
-    embed.add_field(name="Version", value="1.0.0", inline=False)
+    embed.add_field(name="Version", value="4.0.0", inline=False)
     embed.add_field(name="Developer", value="ByteLabs Development Team", inline=False)
-    embed.add_field(name="Commands", value="/search - Search for breaches\n/info - Get bot info", inline=False)
-    embed.add_field(name="Encrypted Data", value="Some data may be encrypted such as Passwords. This is because some databreaches contain encrypted passwords not stored in plain text.", inline=False)
+    embed.add_field(name="Commands", value="""
+    /search - Search for breaches by email, username, IP, phone, name, or password
+    /random_webcam - Get a random webcam feed from Insecam or Shodan
+    /info - Get bot info
+    """, inline=False)
+    embed.add_field(name="Encrypted Data", value="Some data may be encrypted such as Passwords. This is because some data breaches contain encrypted passwords not stored in plain text.", inline=False)
+    embed.add_field(
+        name="/random_webcam Command",
+        value="""
+        Use the `/random_webcam` command to retrieve a random webcam feed. You can choose between two sources:
+        - **Insecam**: Webcams from public feeds around the world.
+        - **Shodan**: Webcams indexed by Shodan with additional data like location and IP.
+        """, inline=False
+    )
     embed.set_footer(text="Thank you for using ByteSecure!")
 
     await interaction.response.send_message(embed=embed)
 
 async def get_random_webcam_url():
-    random_page = random.randint(1, 585)
+    random_page = 1
     url = f"http://www.insecam.org/en/byrating/?page={random_page}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
