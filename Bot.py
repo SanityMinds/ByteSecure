@@ -189,7 +189,7 @@ async def info(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 async def get_random_webcam_url():
-    random_page = 1
+    random_page = random.randint(1, 585)
     url = f"http://www.insecam.org/en/byrating/?page={random_page}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
@@ -227,7 +227,7 @@ async def get_random_webcam_from_shodan():
 
 
     if chosen_query == 'http.title:"WV-SC385" has_screenshot:true':
-        random_page = random.randint(1, 2)
+        random_page = 1
     else:
 
         random_page = random.randint(1, 25)
