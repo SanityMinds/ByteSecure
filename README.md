@@ -52,7 +52,7 @@ To invite the bot that utilizes this code and is operational 24/7, use the follo
 
 To install the bot locally you have to have python3 installed and then run the command:
 
-pip install discord.py requests colorama aiohttp beautifulsoup4 lxml
+pip install discord.py requests colorama aiohttp beautifulsoup4 lxml shodan
 
 replace the token with your own 
 replace the shodan key with your own and follow the steps above for 'breachbase'
