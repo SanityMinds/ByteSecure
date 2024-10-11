@@ -18,7 +18,7 @@ import logging
 import base64
 from io import BytesIO
 from discord import File
-
+import shodan
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -27,15 +27,24 @@ init(autoreset=True)
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Your API keys
 API_KEY = 'BREACHBASE_API_KEY'
-TOKEN = 'BREACHBASE_TOKEN'
-SHODAN_API_KEY = 'SHODAN_TOKEN'
-
+TOKEN = 'breach_base_token'
+SHODAN_API_KEY = 'SHODAN_API_KEY'
+api = shodan.Shodan(SHODAN_API_KEY)
 def clear_console():
     if sys.platform.startswith('win'):
         os.system('cls')
     else:
         os.system('clear')
+
+SHODAN_WEBCAM_QUERIES = [
+    'http.title:"WV-SC385" has_screenshot:true',
+    'http.favicon.hash:-1616143106 has_screenshot:true',
+    'screenshot.label:webcam port:443',
+    'title:"Camera" has_screenshot:true -ip:"122.128.4.106" -ip:"110.4.178.160"',
+    'title:"axis" has_screenshot:true'
+]
 
 @bot.event
 async def on_ready():
@@ -163,28 +172,72 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
 @bot.tree.command(name='info', description='Displays information about the bot')
 async def info(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="ByteSecure Bot Information",
-        description="ByteSecure is a dedicated bot designed to help users check for data breaches and random webcam feeds.",
+        title="🔐 **ByteSecure Bot Information**",
+        description=(
+            "ByteSecure is a multifunctional bot designed to help users verify data breaches, "
+            "retrieve random webcam feeds, and find FTP servers using Shodan. "
+            "It's a powerful tool for security-focused individuals and researchers."
+        ),
         color=discord.Color.dark_blue()
     )
-    embed.add_field(name="Contact", value="admin@bytelabs.site", inline=False)
-    embed.add_field(name="Version", value="4.0.0", inline=False)
-    embed.add_field(name="Developer", value="ByteLabs Development Team", inline=False)
-    embed.add_field(name="Commands", value="""
-    /search - Search for breaches by email, username, IP, phone, name, or password
-    /random_webcam - Get a random webcam feed from Insecam or Shodan
-    /info - Get bot info
-    """, inline=False)
-    embed.add_field(name="Encrypted Data", value="Some data may be encrypted such as Passwords. This is because some data breaches contain encrypted passwords not stored in plain text.", inline=False)
+
     embed.add_field(
-        name="/random_webcam Command",
-        value="""
-        Use the `/random_webcam` command to retrieve a random webcam feed. You can choose between two sources:
-        - **Insecam**: Webcams from public feeds around the world.
-        - **Shodan**: Webcams indexed by Shodan with additional data like location and IP.
-        """, inline=False
+        name="📞 **Contact**",
+        value="For support or inquiries, please reach out to **admin@bytelabs.site**",
+        inline=False
     )
-    embed.set_footer(text="Thank you for using ByteSecure!")
+    embed.add_field(
+        name="⚙️ **Version**",
+        value="4.1.0",
+        inline=False
+    )
+    embed.add_field(
+        name="👨‍💻 **Developer**",
+        value="ByteLabs Development Team",
+        inline=False
+    )
+
+    embed.add_field(
+        name="💻 **Available Commands**",
+        value=(
+            "Here are the core commands you can use with ByteSecure:\n"
+            "• **`/search`** - 🔎 Search for breaches by email, username, IP, phone, name, or password.\n"
+            "• **`/random_webcam`** - 🎥 Get a random webcam feed from Insecam or Shodan.\n"
+            "• **`/random_ftp`** - 🖥️ Retrieve a random FTP server from Shodan.\n"
+            "• **`/info`** - ℹ️ Display this bot information.\n"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔒 **Breachbase API Integration**",
+        value=(
+            "The **`/search`** command allows you to check for data breaches across multiple platforms. "
+            "You can search using:\n"
+            "• Email 📧\n"
+            "• Username 👤\n"
+            "• IP Address 🌐\n"
+            "• Phone Number 📱\n"
+            "• Name 📝\n"
+            "• Password 🔑"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🌍 **Shodan Integration**",
+        value=(
+            "**`/random_webcam`**: Find random webcam feeds indexed by Shodan and Insecam, including live screenshots when available.\n\n"
+            "**`/random_ftp`**: Retrieve random FTP server details from Shodan, including:\n"
+            "• IP Address 🌐\n"
+            "• Banner Information 💻\n"
+            "• Port 🔌 (Port 21 by default)\n"
+            "• Country 🏳️ (with country flag)"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Thank you for using ByteSecure! 🔐")
 
     await interaction.response.send_message(embed=embed)
 
@@ -215,80 +268,6 @@ async def get_random_webcam_url():
 
             return random.choice(webcam_urls)
 
-async def get_random_webcam_from_shodan():
-
-    queries = [
-        'http.title:"WV-SC385" has_screenshot:true',
-        'http.favicon.hash:-1616143106 has_screenshot:true'
-    ]
-
-
-    chosen_query = random.choice(queries)
-
-
-    if chosen_query == 'http.title:"WV-SC385" has_screenshot:true':
-        random_page = 1
-    else:
-
-        random_page = random.randint(1, 25)
-
-
-    shodan_url = f"https://api.shodan.io/shodan/host/search?key={SHODAN_API_KEY}&query={chosen_query}&page={random_page}"
-
-    try:
-        response = requests.get(shodan_url)
-        
-
-        if response.status_code == 500:
-            logging.error(f"Shodan API returned a 500 error. Query: {chosen_query}, Page: {random_page}")
-
-            if chosen_query == 'http.title:"WV-SC385" has_screenshot:true' and random_page == 2:
-                logging.info("Falling back to page 1 for 'WV-SC385' query.")
-                fallback_url = f"https://api.shodan.io/shodan/host/search?key={SHODAN_API_KEY}&query={chosen_query}&page=1"
-                response = requests.get(fallback_url)
-                if response.status_code == 500:
-                    logging.error("Fallback to page 1 failed as well.")
-                    return None
-            else:
-                return None
-
-        data = response.json()
-
-        if 'matches' not in data:
-            logging.error(f"Shodan API response does not contain 'matches'. Query: {chosen_query}, Page: {random_page}")
-            return None
-
-        if data['matches']:
-            random_result = random.choice(data['matches'])
-
-            latitude = random_result.get("location", {}).get("latitude", "Unknown")
-            longitude = random_result.get("location", {}).get("longitude", "Unknown")
-            country = random_result.get("location", {}).get("country_name", "Unknown")
-            country_code = random_result.get("location", {}).get("country_code", "Unknown")
-            city = random_result.get("location", {}).get("city", "Unknown")
-            ip_address = random_result.get("ip_str", "Unknown")
-            port = random_result.get("port", 80)
-            screenshot_data = random_result.get("screenshot", {}).get("data", None)
-
-            webcam_url = f"http://{ip_address}:{port}"
-
-            return {
-                "latitude": latitude,
-                "longitude": longitude,
-                "country": country,
-                "country_code": country_code,
-                "city": city,
-                "ip_address": ip_address,
-                "port": port,
-                "webcam_url": webcam_url,
-                "screenshot_data": screenshot_data
-            }
-        else:
-            logging.error("No matches found in the response from Shodan.")
-            return None
-    except Exception as e:
-        logging.error(f"Shodan API error: {e}")
-        return None
 
 async def get_insecam_image_url(webcam_url):
     headers = {
@@ -349,7 +328,7 @@ async def random_webcam(interaction: discord.Interaction, source: str):
                         manufacturer = extract_detail("Manufacturer:")
 
                         img_url = await get_insecam_image_url(webcam_url)
-                        ip_address = img_url 
+                        ip_address = img_url
 
                         embed = discord.Embed(title="🎥 Random Webcam Found (Insecam)!", color=discord.Color.blue())
                         embed.add_field(name="🔗 IP Address", value=ip_address, inline=False)
@@ -370,34 +349,106 @@ async def random_webcam(interaction: discord.Interaction, source: str):
                         return
 
         elif source == "shodan":
-            shodan_webcam = await get_random_webcam_from_shodan()
-            if shodan_webcam:
-                embed = discord.Embed(title="🎥 Random Webcam Found (Shodan)!", color=discord.Color.green())
-                embed.add_field(name="🔗 IP Address", value=shodan_webcam['ip_address'], inline=False)
-                embed.add_field(name="🌍 Country", value=f":flag_{shodan_webcam['country_code'].lower()}: {shodan_webcam['country']}", inline=False)
-                embed.add_field(name="📍 City", value=shodan_webcam['city'], inline=False)
-                embed.add_field(name="📌 Latitude/Longitude", value=f"{shodan_webcam['latitude']}, {shodan_webcam['longitude']}", inline=False)
-                
-                embed.add_field(name="🌐 Live Webcam", value=f"[Click here to view live feed]({shodan_webcam['webcam_url']})", inline=False)
+            webcam_query = random.choice(SHODAN_WEBCAM_QUERIES)
+            max_pages = 20
 
-                if shodan_webcam['screenshot_data']:
-                    screenshot_bytes = base64.b64decode(shodan_webcam['screenshot_data'])
+            initial_results = api.search(webcam_query, page=1)
+            total_results = initial_results['total']
+            results_per_page = 100
+
+            available_pages = min((total_results // results_per_page) + 1, max_pages)
+
+            random_page = random.randint(1, available_pages)
+
+            results = api.search(webcam_query, page=random_page)
+
+            if results['total'] == 0:
+                await interaction.followup.send("No webcams found matching the query.", ephemeral=True)
+                return
+
+            random_result = random.choice(results['matches'])
+
+            ip_address = random_result.get("ip_str", "Unknown")
+            banner_info = random_result.get("data", "Unknown")
+            country = random_result.get("location", {}).get("country_name", "Unknown")
+            country_code = random_result.get("location", {}).get("country_code", "Unknown")
+            latitude = random_result.get("location", {}).get("latitude", "Unknown")
+            longitude = random_result.get("location", {}).get("longitude", "Unknown")
+            port = random_result.get("port", 80)
+
+            embed = discord.Embed(title="🎥 Random Webcam Found (Shodan)!", color=discord.Color.green())
+            embed.add_field(name="🔗 IP Address", value=ip_address, inline=False)
+            embed.add_field(name="💻 Banner Info", value=f"```{banner_info}```", inline=False)
+            embed.add_field(name="🔌 Port", value=str(port), inline=False)
+            embed.add_field(name="🌍 Country", value=f":flag_{country_code.lower()}: {country}", inline=False)
+            embed.add_field(name="📌 Latitude/Longitude", value=f"{latitude}, {longitude}", inline=False)
+
+            webcam_url = f"http://{ip_address}:{port}"
+            embed.add_field(name="🌐 Live Webcam", value=f"[Click here to view live feed]({webcam_url})", inline=False)
+
+            if 'screenshot' in random_result:
+                screenshot_data = random_result['screenshot'].get('data', None)
+                if screenshot_data:
+                    screenshot_bytes = base64.b64decode(screenshot_data)
                     screenshot_file = BytesIO(screenshot_bytes)
-                    discord_file = discord.File(screenshot_file, filename="webcam_screenshot.jpg")
+                    discord_file = File(screenshot_file, filename="webcam_screenshot.jpg")
 
                     embed.set_image(url="attachment://webcam_screenshot.jpg")
-
                     await interaction.followup.send(embed=embed, file=discord_file)
                 else:
                     await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send(embed=embed)
 
-                return
+            return
 
         await interaction.followup.send("Could not fetch a random webcam at this time. Please try again later.", ephemeral=True)
 
-    except Exception as e:
-        logging.error(f"An error occurred: {str(e)}", exc_info=True)
-        await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+    except shodan.APIError as e:
+        logging.error(f"Shodan API error: {e}")
+        await interaction.followup.send(f"An error occurred while fetching data: {e}", ephemeral=True)
 
-#replace with your token
-bot.run('TOKEN')
+@bot.tree.command(name='random_ftp', description='Get a random FTP server from Shodan!')
+async def random_ftp(interaction: discord.Interaction):
+    await interaction.response.defer()
+    
+    FTP_QUERY = '"logged in" "220" port:21'
+    max_pages = 20
+
+    try:
+        initial_results = api.search(FTP_QUERY, page=1)
+        total_results = initial_results['total']
+        results_per_page = 100
+
+        available_pages = min((total_results // results_per_page) + 1, max_pages)
+
+        random_page = random.randint(1, available_pages)
+
+        results = api.search(FTP_QUERY, page=random_page)
+
+        if results['total'] == 0:
+            await interaction.followup.send("No FTP servers found matching the query.", ephemeral=True)
+            return
+
+        random_result = random.choice(results['matches'])
+
+        ip_address = random_result.get("ip_str", "Unknown")
+        banner_info = random_result.get("data", "Unknown")
+        country = random_result.get("location", {}).get("country_name", "Unknown")
+        country_code = random_result.get("location", {}).get("country_code", "Unknown")
+        port = 21
+
+        embed = discord.Embed(title="🖥️ Random FTP Server Found (Shodan)", color=discord.Color.blue())
+        embed.add_field(name="🔗 IP Address", value=ip_address, inline=False)
+        embed.add_field(name="💻 Banner Info", value=f"```{banner_info}```", inline=False)
+        embed.add_field(name="🔌 Port", value=str(port), inline=False)
+        embed.add_field(name="🌍 Country", value=f":flag_{country_code.lower()}: {country}", inline=False)
+
+        embed.set_footer(text="Powered by Shodan")
+        await interaction.followup.send(embed=embed)
+
+    except shodan.APIError as e:
+        logging.error(f"Shodan API error: {e}")
+        await interaction.followup.send(f"An error occurred while fetching data: {e}", ephemeral=True)
+
+bot.run('DISCORD_TOKEN')
