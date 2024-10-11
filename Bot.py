@@ -135,6 +135,17 @@ class PaginationView(View):
         
         return embed, True
 
+def make_request_with_retries(url, payload, headers, retries=3):
+    for attempt in range(retries):
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed: {e}. Retrying {attempt + 1}/{retries}")
+            time.sleep(2)
+    return None
+
 @bot.tree.command(name='search', description='Search for breaches by email, username, IP, phone, name, or password')
 @app_commands.describe(
     search_type='The type of search you want to perform',
@@ -149,6 +160,7 @@ class PaginationView(View):
     app_commands.Choice(name="Password", value="password"),
 ])
 async def search(interaction: discord.Interaction, search_type: str, query: str):
+    url = 'https://breachbase.com/api/frontend-search/'
     headers = {
         'Content-Type': 'application/json',
         'Cookie': f'token={TOKEN}'
@@ -158,15 +170,30 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
         'type': search_type,
         'input': [query]
     }
-    response = requests.post('https://breachbase.com/api/frontend-search/', json=payload, headers=headers)
-    response_data = response.json()
 
-    if response_data['status'] == 'success':
+    logging.debug(f"Making request to {url} with payload: {payload}")
+    
+    response = make_request_with_retries(url, payload, headers)
+
+    if response is None:
+        await interaction.response.send_message("Error: Failed to retrieve data after multiple attempts.")
+        return
+
+    try:
+        response_data = response.json()
+        logging.debug(f"API Response Data: {response_data}")
+    except ValueError as e:
+        logging.error(f"Failed to parse JSON response: {e}")
+        await interaction.response.send_message("Error: Failed to parse API response.")
+        return
+
+    if response_data.get('status') == 'success':
         view = PaginationView(response_data, search_type, query, API_KEY, TOKEN)
         embed, _ = view.get_embed_for_page(1)
         await interaction.response.send_message(embed=embed, view=view)
     else:
         error_message = response_data.get('error', 'Unknown error occurred.')
+        logging.error(f"Breachbase API Error: {error_message}")
         await interaction.response.send_message(f"Error: {error_message}")
 
 @bot.tree.command(name='info', description='Displays information about the bot')
