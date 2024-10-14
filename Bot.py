@@ -21,6 +21,8 @@ from discord import File
 import shodan
 from discord import Embed
 from json import JSONDecodeError
+import ftplib
+
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -29,22 +31,27 @@ init(autoreset=True)
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 API_KEY = 'BREACHBASE_API_KEY'
 TOKEN = 'BREACHBASE_TOKEN'
-SHODAN_API_KEY = 'SHOAN_API'
+SHODAN_API_KEY = 'SHODAN_API_KEY'  
 api = shodan.Shodan(SHODAN_API_KEY)
 def clear_console():
     if sys.platform.startswith('win'):
-        os.system('cls')
+        os.system('cls')  
     else:
-        os.system('clear')
+        os.system('clear')  
 
 SHODAN_WEBCAM_QUERIES = [
     'http.title:"WV-SC385" has_screenshot:true',
     'http.favicon.hash:-1616143106 has_screenshot:true',
     'screenshot.label:webcam port:443',
     'title:"Camera" has_screenshot:true -ip:"122.128.4.106" -ip:"110.4.178.160"',
-    'title:"axis" has_screenshot:true'
+    'title:"axis" has_screenshot:true',
+    'http.favicon.hash:999357577 has_screenshot:true',
+    'title:"Live" has_screenshot:true',
+    'title:"security" has_screenshot:true',
+    '"google" has_screenshot:true'
 ]
 
 @bot.event
@@ -130,10 +137,10 @@ class PaginationView(View):
                 value_text += f"\n**Name**: `{name}`"
 
             embed.add_field(name=f"Username: `{username}`", value=value_text, inline=False)
-        
+
         embed.set_footer(text="Data fetched from Breachbase API")
         embed.timestamp = discord.utils.utcnow()
-        
+
         return embed, True
 
 
@@ -174,7 +181,7 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
     }
 
     logging.debug(f"Making request to {url} with payload: {payload}")
-    
+
     response = make_request_with_retries(url, payload, headers)
 
     if response is None:
@@ -442,6 +449,58 @@ async def random_webcam(interaction: discord.Interaction, source: str):
         logging.error(f"Error in random_webcam: {e}")
         await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
 
+class FTPLoginView(View):
+    def __init__(self, ip_address, port):
+        super().__init__()
+        self.ip_address = ip_address
+        self.port = port
+
+    @discord.ui.button(label="🔐 Login as Anonymous", style=discord.ButtonStyle.success, emoji="🔑")
+    async def login_button(self, interaction: discord.Interaction, button: Button):
+        try:
+
+            with ftplib.FTP() as ftp:
+                ftp.connect(self.ip_address, self.port)
+                ftp.login()  
+
+                try:
+
+                    directory_listing = ftp.nlst()
+
+
+                    if not directory_listing:
+                        directory_message = "No files or directories found."
+                    else:
+
+                        directory_message = "\n".join(directory_listing[:10])  
+                        if len(directory_listing) > 10:
+                            directory_message += f"\n...and {len(directory_listing) - 10} more items."
+
+
+                    embed = discord.Embed(
+                        title=f"📂 Directory Structure of `{self.ip_address}:{self.port}`",
+                        description=f"Here are the files and directories at the root level:\n```{directory_message}```",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(name="💡 Info", value="Listing limited to the first 10 items.", inline=False)
+                    embed.set_footer(text="FTP Directory Structure - Logged in as anonymous")
+                    embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/2921/2921222.png")  
+                    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+                except ftplib.error_perm as e:
+
+                    if str(e).startswith("550"):
+                        await interaction.response.send_message(f"❌ Permission denied when accessing the directory of `{self.ip_address}:{self.port}`.", ephemeral=True)
+                    else:
+                        raise e
+
+        except ftplib.all_errors as e:
+
+            error_message = f"❌ Failed to log into FTP server at `{self.ip_address}:{self.port}`. Error: {e}"
+            logging.error(error_message)
+            await interaction.response.send_message(error_message, ephemeral=True)
+
+
 @bot.tree.command(name='random_ftp', description='Get a random FTP server from Shodan!')
 async def random_ftp(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -469,7 +528,7 @@ async def random_ftp(interaction: discord.Interaction):
     async with aiohttp.ClientSession() as session:
         for attempt in range(retries):
             data = await fetch_ftp_results(session, FTP_QUERY, page=1)
-            
+
             if data and 'total' in data:
                 total_results = data['total']
                 total_pages = min((total_results // 100) + 1, max_pages)
@@ -486,19 +545,26 @@ async def random_ftp(interaction: discord.Interaction):
                     country_code = random_result.get("location", {}).get("country_code", "Unknown")
                     port = 21
 
-                    embed = Embed(title="🖥️ Random FTP Server Found (Shodan)", color=discord.Color.blue())
+                    embed = Embed(title="🖥️ Random FTP Server Found", color=discord.Color.blue())
                     embed.add_field(name="🔗 IP Address", value=ip_address, inline=False)
                     embed.add_field(name="💻 Banner Info", value=f"```{banner_info}```", inline=False)
                     embed.add_field(name="🔌 Port", value=str(port), inline=False)
                     embed.add_field(name="🌍 Country", value=f":flag_{country_code.lower()}: {country}", inline=False)
 
+
+                    view = FTPLoginView(ip_address, port)
+
                     embed.set_footer(text="Powered by Shodan")
-                    await interaction.followup.send(embed=embed)
+                    embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/716/716784.png")  
+                    await interaction.followup.send(embed=embed, view=view)
                     return
                 elif data is None:
                     logging.warning(f"Failed to fetch FTP results on attempt {attempt + 1}/{retries}. Retrying...")
                     continue 
 
+
         await interaction.followup.send("No FTP servers found or an error occurred while fetching data. Please try again later.", ephemeral=True)
+
+
 
 bot.run('DISCORD_TOKEN')
