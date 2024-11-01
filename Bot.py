@@ -38,9 +38,9 @@ SHODAN_API_KEY = 'SHODAN_API_KEY'
 api = shodan.Shodan(SHODAN_API_KEY)
 def clear_console():
     if sys.platform.startswith('win'):
-        os.system('cls')  
+        os.system('cls')
     else:
-        os.system('clear')  
+        os.system('clear')
 
 SHODAN_WEBCAM_QUERIES = [
     'http.title:"WV-SC385" has_screenshot:true',
@@ -51,7 +51,13 @@ SHODAN_WEBCAM_QUERIES = [
     'http.favicon.hash:999357577 has_screenshot:true',
     'title:"Live" has_screenshot:true',
     'title:"security" has_screenshot:true',
-    '"google" has_screenshot:true'
+    '"google" has_screenshot:true',
+    'title:"blue iris remote view" has_screenshot:true',
+    'title:"ui3 -" has_screenshot:true',
+    'title:"Network Camera VB-M600" has_screenshot:true',
+    'product:"Yawcam webcam viewer httpd" has_screenshot:true',
+    'title:"+tm01+" has_screenshot:true',
+    'WVC80N has_screenshot:true'
 ]
 
 @bot.event
@@ -110,7 +116,6 @@ class PaginationView(View):
         start_index = (page - 1) * 5
         end_index = start_index + 5
         content = self.data['content'][start_index:end_index]
-
         if not content:
             return None, False
 
@@ -144,18 +149,20 @@ class PaginationView(View):
         return embed, True
 
 
-def make_request_with_retries(url, payload, headers, retries=3):
+async def make_request_with_retries(url, payload, headers, retries=3):
     for attempt in range(retries):
         try:
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed: {e}. Retrying {attempt + 1}/{retries}")
-            time.sleep(2)
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    await asyncio.sleep(2)
+        except Exception as e:
+            logging.error(f"Attempt {attempt + 1} failed with error: {e}")
     return None
 
 @bot.tree.command(name='search', description='Search for breaches by email, username, IP, phone, name, or password')
+@commands.cooldown(1, 30, commands.BucketType.user)
 @app_commands.describe(
     search_type='The type of search you want to perform',
     query='Your search query, e.g., bob@mail.com'
@@ -182,11 +189,11 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
 
     logging.debug(f"Making request to {url} with payload: {payload}")
 
-    response = make_request_with_retries(url, payload, headers)
-
-    if response is None:
-        await interaction.response.send_message("Error: Failed to retrieve data after multiple attempts.")
+    response_data = await make_request_with_retries(url, payload, headers)
+    if not response_data:
+        await interaction.followup.send("Error: Failed to retrieve data after multiple attempts.")
         return
+
 
     try:
         response_data = response.json()
@@ -199,11 +206,9 @@ async def search(interaction: discord.Interaction, search_type: str, query: str)
     if response_data.get('status') == 'success':
         view = PaginationView(response_data, search_type, query, API_KEY, TOKEN)
         embed, _ = view.get_embed_for_page(1)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
     else:
-        error_message = response_data.get('error', 'Unknown error occurred.')
-        logging.error(f"Breachbase API Error: {error_message}")
-        await interaction.response.send_message(f"Error: {error_message}")
+        await interaction.followup.send(f"Error: {response_data.get('error', 'Unknown error occurred.')}")
 
 @bot.tree.command(name='info', description='Displays information about the bot')
 async def info(interaction: discord.Interaction):
@@ -325,6 +330,7 @@ async def get_insecam_image_url(webcam_url):
             return None
 
 @bot.tree.command(name='random_webcam', description='Get a random webcam from either Insecam or Shodan!')
+@commands.cooldown(1, 30, commands.BucketType.user)
 @app_commands.choices(source=[
     app_commands.Choice(name="Insecam", value="insecam"),
     app_commands.Choice(name="Shodan", value="shodan")
@@ -457,54 +463,54 @@ class FTPLoginView(View):
 
     @discord.ui.button(label="🔐 Login as Anonymous", style=discord.ButtonStyle.success, emoji="🔑")
     async def login_button(self, interaction: discord.Interaction, button: Button):
-        try:
+        await interaction.response.defer()  
+        attempt_limit = 3
+        for attempt in range(attempt_limit):
+            try:
+                with ftplib.FTP() as ftp:
+                    ftp.connect(self.ip_address, self.port, timeout=10)
+                    ftp.login()  
 
-            with ftplib.FTP() as ftp:
-                ftp.connect(self.ip_address, self.port)
-                ftp.login()  
+                    try:
+                        directory_listing = ftp.nlst()
+                        if not directory_listing:
+                            directory_message = "No files or directories found."
+                        else:
+                            directory_message = "\n".join(directory_listing[:10])
+                            if len(directory_listing) > 10:
+                                directory_message += f"\n...and {len(directory_listing) - 10} more items."
 
-                try:
+                        embed = discord.Embed(
+                            title=f"📂 Directory Structure of `{self.ip_address}:{self.port}`",
+                            description=f"Here are the files and directories at the root level:\n```{directory_message}```",
+                            color=discord.Color.green()
+                        )
+                        embed.add_field(name="💡 Info", value="Listing limited to the first 10 items.", inline=False)
+                        embed.set_footer(text="FTP Directory Structure - Logged in as anonymous")
 
-                    directory_listing = ftp.nlst()
+                        await interaction.followup.send(embed=embed)  
+                        return  
 
+                    except ftplib.error_perm as e:
+                        logging.warning(f"FTP Permission error: {e}")
+                        await interaction.followup.send(f"❌ Permission denied on `{self.ip_address}:{self.port}`.", ephemeral=True)
+                        return  
 
-                    if not directory_listing:
-                        directory_message = "No files or directories found."
-                    else:
+            except ftplib.all_errors as e:
+                error_message = f"Attempt {attempt + 1}/{attempt_limit} failed to access FTP server at `{self.ip_address}:{self.port}`. Error: {e}"
+                logging.error(error_message)
+                if attempt < attempt_limit - 1:
+                    await asyncio.sleep(2)  
+                else:
 
-                        directory_message = "\n".join(directory_listing[:10])  
-                        if len(directory_listing) > 10:
-                            directory_message += f"\n...and {len(directory_listing) - 10} more items."
-
-
-                    embed = discord.Embed(
-                        title=f"📂 Directory Structure of `{self.ip_address}:{self.port}`",
-                        description=f"Here are the files and directories at the root level:\n```{directory_message}```",
-                        color=discord.Color.green()
-                    )
-                    embed.add_field(name="💡 Info", value="Listing limited to the first 10 items.", inline=False)
-                    embed.set_footer(text="FTP Directory Structure - Logged in as anonymous")
-                    embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/2921/2921222.png")  
-                    await interaction.response.send_message(embed=embed, ephemeral=False)
-
-                except ftplib.error_perm as e:
-
-                    if str(e).startswith("550"):
-                        await interaction.response.send_message(f"❌ Permission denied when accessing the directory of `{self.ip_address}:{self.port}`.", ephemeral=True)
-                    else:
-                        raise e
-
-        except ftplib.all_errors as e:
-
-            error_message = f"❌ Failed to log into FTP server at `{self.ip_address}:{self.port}`. Error: {e}"
-            logging.error(error_message)
-            await interaction.response.send_message(error_message, ephemeral=True)
-
+                    if not interaction.response.is_done():
+                        await interaction.followup.send(f"❌ Failed to log into FTP server after {attempt_limit} attempts.", ephemeral=True)
+                    return
 
 @bot.tree.command(name='random_ftp', description='Get a random FTP server from Shodan!')
+@commands.cooldown(1, 30, commands.BucketType.user)
 async def random_ftp(interaction: discord.Interaction):
     await interaction.response.defer()
-
     FTP_QUERY = '"logged in" "220" port:21'
     retries = 3
     max_pages = 20
@@ -528,17 +534,13 @@ async def random_ftp(interaction: discord.Interaction):
     async with aiohttp.ClientSession() as session:
         for attempt in range(retries):
             data = await fetch_ftp_results(session, FTP_QUERY, page=1)
-
             if data and 'total' in data:
                 total_results = data['total']
                 total_pages = min((total_results // 100) + 1, max_pages)
-
                 random_page = random.randint(1, total_pages)
                 data = await fetch_ftp_results(session, FTP_QUERY, random_page)
-
                 if data and 'matches' in data and data['matches']:
                     random_result = random.choice(data['matches'])
-
                     ip_address = random_result.get("ip_str", "Unknown")
                     banner_info = random_result.get("data", "Unknown")
                     country = random_result.get("location", {}).get("country_name", "Unknown")
@@ -551,20 +553,123 @@ async def random_ftp(interaction: discord.Interaction):
                     embed.add_field(name="🔌 Port", value=str(port), inline=False)
                     embed.add_field(name="🌍 Country", value=f":flag_{country_code.lower()}: {country}", inline=False)
 
-
                     view = FTPLoginView(ip_address, port)
-
                     embed.set_footer(text="Powered by Shodan")
-                    embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/716/716784.png")  
                     await interaction.followup.send(embed=embed, view=view)
                     return
                 elif data is None:
                     logging.warning(f"Failed to fetch FTP results on attempt {attempt + 1}/{retries}. Retrying...")
                     continue 
 
-
         await interaction.followup.send("No FTP servers found or an error occurred while fetching data. Please try again later.", ephemeral=True)
 
+class CVEPaginationView(View):
+    def __init__(self, cves, title, query, items_per_page=3):
+        super().__init__(timeout=180)
+        self.cves = cves
+        self.title = title
+        self.query = query
+        self.page = 0
+        self.items_per_page = items_per_page
 
+    @discord.ui.button(label='Previous', style=discord.ButtonStyle.primary, disabled=True)
+    async def previous_button(self, interaction: discord.Interaction, button: Button):
+        self.page -= 1
+        await self.update_embed(interaction)
+
+    @discord.ui.button(label='Next', style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: Button):
+        self.page += 1
+        await self.update_embed(interaction)
+
+    async def update_embed(self, interaction):
+        embed = self.get_embed_for_page()
+        self.previous_button.disabled = self.page == 0
+        self.next_button.disabled = self.page >= (len(self.cves) - 1) // self.items_per_page
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def get_embed_for_page(self):
+        start_index = self.page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_items = self.cves[start_index:end_index]
+
+        embed = discord.Embed(
+            title=f"{self.title}",
+            description=f"Results for `{self.query}` (Page {self.page + 1}/{(len(self.cves) - 1) // self.items_per_page + 1})",
+            color=discord.Color.blue()
+        )
+
+        for cve in page_items:
+            cve_id = cve.get("cve_id", "N/A")
+            summary = cve.get("summary", "No summary available.")
+            cvss_score = cve.get("cvss", "N/A")
+            kev_status = "Yes" if cve.get("kev", False) else "No"
+            propose_action = cve.get("propose_action", "None provided.")
+            ransomware_campaign = cve.get("ransomware_campaign", "None reported.")
+            published_time = cve.get("published_time", "N/A")
+            references = cve.get("references", [])
+            reference_links = "\n".join(references[:2])  
+
+            embed.add_field(
+                name=f"CVE ID: {cve_id}",
+                value=(
+                    f"**Summary**: {summary[:250]}...\n"  
+                    f"**CVSS Score**: {cvss_score}\n"
+                    f"**KEV Status**: {kev_status}\n"
+                    f"**Proposed Action**: {propose_action}\n"
+                    f"**Ransomware Campaign**: {ransomware_campaign}\n"
+                    f"**Published**: {published_time}\n"
+                    f"**References**: {reference_links or 'None'}"
+                ),
+                inline=False
+            )
+
+        embed.set_footer(text="Data sourced from CVE API")
+        embed.timestamp = discord.utils.utcnow()
+        return embed
+
+
+@bot.tree.command(name='cve_lookup', description='Look up CVE information based on a product query')
+@app_commands.describe(
+    query='The product name to search for CVEs (e.g., "wordpress")',
+    is_kev='Filter for Known Exploited Vulnerabilities (optional)',
+    sort_by_epss='Sort results by EPSS score (optional)'
+)
+async def cve_lookup(
+    interaction: discord.Interaction,
+    query: str,
+    is_kev: bool = False,
+    sort_by_epss: bool = False
+):
+    await interaction.response.defer()
+
+    url = "https://cvedb.shodan.io/cves"
+    params = {
+        'product': query,
+        'count': 'false',
+        'is_kev': 'true' if is_kev else 'false',
+        'sort_by_epss': 'true' if sort_by_epss else 'false',
+        'skip': 0,
+        'limit': 1000  
+    }
+    headers = {
+        'accept': 'application/json'
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                cves = data.get('cves', [])
+
+                if not cves:
+                    await interaction.followup.send(f"No CVEs found for the specified query: `{query}`.")
+                    return
+
+                view = CVEPaginationView(cves, "CVE Lookup Results", query)
+                embed = view.get_embed_for_page()
+                await interaction.followup.send(embed=embed, view=view)
+            else:
+                await interaction.followup.send("Error: Failed to retrieve CVE data from the API.")
 
 bot.run('DISCORD_TOKEN')
