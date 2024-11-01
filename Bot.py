@@ -229,7 +229,7 @@ async def info(interaction: discord.Interaction):
     )
     embed.add_field(
         name="⚙️ **Version**",
-        value="4.5.0",
+        value="4.7.0",
         inline=False
     )
     embed.add_field(
